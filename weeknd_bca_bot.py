@@ -4,11 +4,18 @@ Bot monitor hidden link tiket The Weeknd Jakarta 2026
 Target: https://promo.bca.co.id/id/the-weeknd
 
 Mencari link yang mengarah ke penjualan di tiket.com
+Notifikasi via Telegram + Auto-open browser
 
-Cara pakai:
+Deploy: Jalankan di VPS / cloud server 24/7
     pip install requests beautifulsoup4
     python weeknd_bca_bot.py
-    python weeknd_bca_bot.py --no-auto-open
+
+Telegram Setup:
+    1. Chat @BotFather di Telegram, buat bot baru (/newbot)
+    2. Copy token bot
+    3. Chat bot kamu, lalu buka: https://api.telegram.org/bot<TOKEN>/getUpdates
+    4. Cari chat_id kamu
+    5. Isi TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di bawah
 """
 
 import os
@@ -36,6 +43,11 @@ DEFAULT_INTERVAL = 0.1
 LOG_FILE = "weeknd_bca_bot.log"
 FOUND_LINKS_FILE = "found_links.json"
 
+# ── TELEGRAM CONFIG ──
+# Isi dengan token dan chat_id kamu
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
 # Keyword untuk mendeteksi link tiket.com
 TIKET_KEYWORDS = [
     "tiket.com",
@@ -54,17 +66,13 @@ TIKET_PATTERNS = [
     r'https?://[^\s"\'<>\)]*tiket\.com[^\s"\'<>\)]*',
 ]
 
-# Pattern spesifik link presale The Weeknd Jakarta (berdasarkan link hari ini)
-# Format: tiket.com/id-id/to-do/theweekndinjakarta-{type}
+# Pattern spesifik link presale The Weeknd Jakarta
 WEEKND_TIKET_PATTERNS = [
     r'https?://(?:www\.|m\.)?tiket\.com/(?:id-id|en-id)/to-do/theweekndinjakarta[^\s"\'<>\)]*',
     r'https?://(?:www\.|m\.)?tiket\.com/(?:id-id|en-id)/to-do/[^\s"\'<>\)]*weeknd[^\s"\'<>\)]*',
     r'https?://(?:www\.|m\.)?tiket\.com/to-do/theweekndinjakarta[^\s"\'<>\)]*',
     r'https?://(?:www\.|m\.)?tiket\.com/to-do/[^\s"\'<>\)]*weeknd[^\s"\'<>\)]*',
 ]
-
-# Contoh link presale hari ini (18 May 2026):
-# https://www.tiket.com/id-id/to-do/theweekndinjakarta-artistpresaleday1?utm_page=toDoSearchResult&queueittoken=...
 
 # ============================================================
 #  WARNA TERMINAL (ANSI)
@@ -110,86 +118,111 @@ def log_to_file(msg):
         pass
 
 def is_tiket_url(url):
-    """Cek apakah URL mengarah ke tiket.com"""
     return bool(re.search(r'tiket\.com', url, re.IGNORECASE))
 
 def is_relevant_tiket_url(url):
-    """Filter URL tiket.com yang relevan (bukan generic homepage / flight / hotel)"""
     url_lower = url.lower()
-    # Exclude generic pages
     excludes = [
-        "tiket.com/flights",
-        "tiket.com/hotel",
-        "tiket.com/kereta",
-        "tiket.com/bus",
-        "tiket.com/car-rental",
-        "tiket.com/airport",
-        "tiket.com/xperience",
-        "tiket.com/mobile-apps",
-        "tiket.com/en-id/flights",
-        "tiket.com/en-id/hotel",
-        "tiket.com/en-my/flights",
-        "tiket.com/en-us/flights",
-        "tiket.com/en-sg/flights",
-        "tiket.com/en-th/flights",
+        "tiket.com/flights", "tiket.com/hotel", "tiket.com/kereta",
+        "tiket.com/bus", "tiket.com/car-rental", "tiket.com/airport",
+        "tiket.com/xperience", "tiket.com/mobile-apps",
+        "tiket.com/en-id/flights", "tiket.com/en-id/hotel",
+        "tiket.com/en-my/flights", "tiket.com/en-us/flights",
+        "tiket.com/en-sg/flights", "tiket.com/en-th/flights",
         "tiket.com/destination",
     ]
     for ex in excludes:
         if ex in url_lower:
             return False
-
-    # Plain homepage, skip
     if re.match(r'https?://(?:www\.|m\.)?tiket\.com/?(\?.*)?$', url):
         return False
     if re.match(r'https?://(?:www\.|m\.)?tiket\.com/(?:id-id|en-id|en-my|en-sg|en-th|en-us)/?(\?.*)?$', url):
         return False
-
-    # HIGH PRIORITY: link spesifik The Weeknd Jakarta
-    high_priority = [
-        "theweekndinjakarta",
-        "weeknd",
-        "the-weeknd",
-        "artistpresale",
-        "presale",
-        "queueittoken",
-    ]
+    high_priority = ["theweekndinjakarta", "weeknd", "the-weeknd", "artistpresale", "presale", "queueittoken"]
     if any(kw in url_lower for kw in high_priority):
         return True
-
-    # Include if it has event-related patterns
-    includes = [
-        "to-do",
-        "/event/",
-        "concert",
-        "after-hours",
-    ]
+    includes = ["to-do", "/event/", "concert", "after-hours"]
     if any(inc in url_lower for inc in includes):
         return True
-
-    # Also include any tiket.com/to-do/* or /id-id/to-do/* link (event tickets)
     if "/to-do/" in url_lower:
         return True
-
-    # Any other tiket.com link on a concert promo page is suspicious/relevant
     return True
 
 def is_weeknd_presale_url(url):
-    """Cek apakah URL adalah link presale The Weeknd Jakarta (high priority)"""
     url_lower = url.lower()
-    # Check specific patterns based on actual link format:
-    # tiket.com/id-id/to-do/theweekndinjakarta-artistpresaleday1
-    # tiket.com/id-id/to-do/theweekndinjakarta-bcapresaleday1
-    # tiket.com/id-id/to-do/theweekndinjakarta-generalsaleday1
     if "theweekndinjakarta" in url_lower:
         return True
     if "weeknd" in url_lower and ("presale" in url_lower or "to-do" in url_lower):
         return True
     if "weeknd" in url_lower and "tiket.com" in url_lower:
         return True
-    # Queue-it token on tiket.com likely means active sale page
     if "queueittoken" in url_lower and "tiket.com" in url_lower:
         return True
     return False
+
+# ============================================================
+#  TELEGRAM NOTIFICATION
+# ============================================================
+
+def send_telegram(message):
+    """Kirim notifikasi ke Telegram."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+        }
+        resp = requests.post(url, json=payload, timeout=10)
+        return resp.status_code == 200
+    except Exception as e:
+        log_to_file(f"Telegram error: {e}")
+        return False
+
+def send_telegram_alert(links):
+    """Kirim alert link ditemukan ke Telegram."""
+    current = now_wib().strftime('%d %b %Y %H:%M:%S WIB')
+
+    presale = [l for l in links if l.get("priority") or "PRESALE" in l.get("type", "")]
+    others = [l for l in links if l not in presale]
+
+    msg = f"🚨🚨🚨 <b>LINK TIKET.COM DITEMUKAN!</b> 🚨🚨🚨\n\n"
+    msg += f"⏰ {current}\n"
+    msg += f"🎯 Target: promo.bca.co.id/id/the-weeknd\n\n"
+
+    if presale:
+        msg += "🎫 <b>=== PRESALE WEEKND ===</b>\n\n"
+        for link in presale:
+            text = link.get("text", "")
+            msg += f"🔥 <b>[{link['type']}]</b>\n"
+            if text:
+                msg += f"   {text}\n"
+            msg += f"👉 <a href=\"{link['url']}\">{link['url'][:80]}</a>\n\n"
+
+    if others:
+        msg += "📎 <b>Link Lainnya:</b>\n\n"
+        for link in others:
+            text = link.get("text", "")
+            msg += f"• [{link['type']}] {text}\n"
+            msg += f"  {link['url'][:80]}\n\n"
+
+    msg += "⚡ <b>BUKA SEKARANG! JANGAN SAMPAI KEHABISAN!</b>"
+
+    return send_telegram(msg)
+
+def send_telegram_startup():
+    """Kirim notif bot sudah aktif."""
+    current = now_wib().strftime('%d %b %Y %H:%M:%S WIB')
+    msg = f"✅ <b>Bot Monitor Aktif</b>\n\n"
+    msg += f"⏰ {current}\n"
+    msg += f"🎯 Target: {URL}\n"
+    msg += f"🔍 Mencari: Link tiket.com presale The Weeknd\n"
+    msg += f"⚡ Interval: {DEFAULT_INTERVAL}s\n\n"
+    msg += "Bot akan kirim notif saat link ditemukan."
+    return send_telegram(msg)
 
 # ============================================================
 #  FETCH & PARSE
@@ -204,49 +237,22 @@ def fetch_page(session):
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
         "Referer": "https://promo.bca.co.id/",
-        "sec-ch-ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-user": "?1",
-        "upgrade-insecure-requests": "1",
     }
     resp = session.get(URL, headers=headers, timeout=20)
     resp.raise_for_status()
     return BeautifulSoup(resp.text, "html.parser"), resp.text
 
 def extract_page_info(soup):
-    """Extract info dasar dari halaman BCA promo."""
-    info = {
-        "title": "",
-        "description": "",
-        "promo_period": "",
-    }
-
-    # Title
+    info = {"title": "", "description": "", "promo_period": ""}
     title_el = soup.find("h1") or soup.find("title")
     if title_el:
         info["title"] = title_el.get_text(strip=True)
-
-    # Meta description
     meta_desc = soup.find("meta", attrs={"name": "description"})
     if meta_desc:
         info["description"] = meta_desc.get("content", "")[:100]
-
-    # Promo period - look for date patterns
-    for el in soup.find_all(["p", "span", "div"]):
-        text = el.get_text(strip=True)
-        if re.search(r'\d{1,2}\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)', text, re.IGNORECASE):
-            if "periode" in text.lower() or "valid" in text.lower() or "berlaku" in text.lower():
-                info["promo_period"] = text[:80]
-                break
-
     return info
 
 def extract_visible_links(soup):
-    """Extract semua visible links yang mengarah ke tiket.com."""
     links = []
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
@@ -256,23 +262,18 @@ def extract_visible_links(soup):
             priority = is_weeknd_presale_url(href)
             links.append({
                 "type": "*** PRESALE WEEKND ***" if priority else "VISIBLE LINK",
-                "text": text,
-                "url": href,
-                "relevant": relevant,
-                "priority": priority,
+                "text": text, "url": href,
+                "relevant": relevant, "priority": priority,
             })
     return links
 
 def extract_buttons(soup):
-    """Extract buttons/CTA yang mungkin mengarah ke tiket.com."""
     buttons = []
-    # Button elements with onclick or data attributes
     for btn in soup.find_all(["button", "a"], class_=re.compile(r'btn|button|cta', re.IGNORECASE)):
         href = btn.get("href", "")
         onclick = btn.get("onclick", "")
         data_href = btn.get("data-href", "") or btn.get("data-url", "") or btn.get("data-link", "")
         text = btn.get_text(strip=True)
-
         target_url = ""
         if href and is_tiket_url(href):
             target_url = href
@@ -284,22 +285,17 @@ def extract_buttons(soup):
                     break
         elif data_href and is_tiket_url(data_href):
             target_url = data_href
-
         if target_url:
-            buttons.append({
-                "type": "BUTTON/CTA",
-                "text": text or "[button]",
-                "url": target_url,
-                "relevant": is_relevant_tiket_url(target_url),
-            })
-
+            buttons.append({"type": "BUTTON/CTA", "text": text or "[button]", "url": target_url, "relevant": is_relevant_tiket_url(target_url)})
     return buttons
+
+
 
 def find_hidden_links(soup, raw_html):
     """Cari hidden links / URL baru yang mengarah ke tiket.com."""
     found = []
 
-    # 1. CSS hidden elements (display:none, visibility:hidden, opacity:0)
+    # 1. CSS hidden elements
     for el in soup.find_all(style=re.compile(r'display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0')):
         for u in re.findall(r'https?://[^\s"\'<>\)]+', str(el)):
             if is_tiket_url(u) and is_relevant_tiket_url(u):
@@ -311,7 +307,7 @@ def find_hidden_links(soup, raw_html):
             if is_tiket_url(u) and is_relevant_tiket_url(u):
                 found.append({"type": "HTML COMMENT", "text": "", "url": u})
 
-    # 3. Data attributes with tiket.com URLs
+    # 3. Data attributes
     for el in soup.find_all(True):
         for attr, val in el.attrs.items():
             if isinstance(val, str) and is_tiket_url(val):
@@ -320,77 +316,61 @@ def find_hidden_links(soup, raw_html):
                     if is_tiket_url(u) and is_relevant_tiket_url(u):
                         found.append({"type": f"DATA-ATTR ({attr})", "text": el.get_text(strip=True)[:30], "url": u})
 
-    # 4. Inline/embedded JavaScript
+    # 4. JavaScript (normal + escaped URLs)
     for script in soup.find_all("script"):
         content = script.string or ""
-        # Normal URLs
         for u in re.findall(r'https?://[^\s"\'<>\)\\]+', content):
             if is_tiket_url(u) and is_relevant_tiket_url(u):
-                link_type = "JAVASCRIPT"
-                if is_weeknd_presale_url(u):
-                    link_type = "*** PRESALE WEEKND (JS) ***"
+                link_type = "*** PRESALE WEEKND (JS) ***" if is_weeknd_presale_url(u) else "JAVASCRIPT"
                 found.append({"type": link_type, "text": "", "url": u})
-        # Escaped URLs in JS (e.g., https:\/\/www.tiket.com\/...)
         for u in re.findall(r'https?:\\/\\/[^\s"\'<>\)]+', content):
             unescaped = u.replace("\\/", "/")
             if is_tiket_url(unescaped) and is_relevant_tiket_url(unescaped):
-                link_type = "JAVASCRIPT (escaped)"
-                if is_weeknd_presale_url(unescaped):
-                    link_type = "*** PRESALE WEEKND (JS) ***"
+                link_type = "*** PRESALE WEEKND (JS) ***" if is_weeknd_presale_url(unescaped) else "JAVASCRIPT (escaped)"
                 found.append({"type": link_type, "text": "", "url": unescaped})
 
-    # 5. JSON-LD / structured data
+    # 5. JSON-LD
     for script in soup.find_all("script", type="application/ld+json"):
         try:
             data = json.loads(script.string or "{}")
-            json_str = json.dumps(data)
-            for u in re.findall(r'https?://[^\s"\'<>\)\\]+', json_str):
+            for u in re.findall(r'https?://[^\s"\'<>\)\\]+', json.dumps(data)):
                 if is_tiket_url(u) and is_relevant_tiket_url(u):
                     found.append({"type": "JSON-LD", "text": "", "url": u})
         except Exception:
             pass
 
-    # 6. Next.js / React hydration data (__NEXT_DATA__, __NUXT__, etc.)
+    # 6. Hydration data
     for script in soup.find_all("script", id=re.compile(r'__NEXT|__NUXT|__APP')):
         content = script.string or ""
         for u in re.findall(r'https?://[^\s"\'<>\)\\]+', content):
             if is_tiket_url(u) and is_relevant_tiket_url(u):
                 found.append({"type": "HYDRATION DATA", "text": "", "url": u})
 
-    # 7. All raw URLs in HTML source not already in visible <a> tags
-    visible_hrefs = set()
-    for a in soup.find_all("a", href=True):
-        visible_hrefs.add(a["href"].strip())
-
-    # Search with general tiket patterns
+    # 7. Raw HTML URLs not in visible <a> tags
+    visible_hrefs = set(a["href"].strip() for a in soup.find_all("a", href=True))
     for pattern in TIKET_PATTERNS:
         for u in set(re.findall(pattern, raw_html)):
             clean = u.rstrip(".,;:\"')")
             if clean not in visible_hrefs and is_relevant_tiket_url(clean):
                 if not any(f["url"] == clean for f in found):
-                    link_type = "URL BARU (raw HTML)"
-                    if is_weeknd_presale_url(clean):
-                        link_type = "*** PRESALE WEEKND ***"
+                    link_type = "*** PRESALE WEEKND ***" if is_weeknd_presale_url(clean) else "URL BARU (raw HTML)"
                     found.append({"type": link_type, "text": "", "url": clean})
 
-    # Search with weeknd-specific patterns (high priority)
+    # Weeknd-specific patterns
     for pattern in WEEKND_TIKET_PATTERNS:
         for u in set(re.findall(pattern, raw_html)):
             clean = u.rstrip(".,;:\"')")
             if not any(f["url"] == clean for f in found):
                 found.append({"type": "*** PRESALE WEEKND ***", "text": "", "url": clean})
 
-    # 8. iframe src
+    # 8. iframe
     for iframe in soup.find_all("iframe", src=True):
-        src = iframe["src"]
-        if is_tiket_url(src):
-            found.append({"type": "IFRAME", "text": "", "url": src})
+        if is_tiket_url(iframe["src"]):
+            found.append({"type": "IFRAME", "text": "", "url": iframe["src"]})
 
-    # 9. Meta refresh / redirect
+    # 9. Meta refresh
     for meta in soup.find_all("meta", attrs={"http-equiv": "refresh"}):
-        content = meta.get("content", "")
-        urls = re.findall(r'url=([^\s"\']+)', content, re.IGNORECASE)
-        for u in urls:
+        for u in re.findall(r'url=([^\s"\']+)', meta.get("content", ""), re.IGNORECASE):
             if is_tiket_url(u):
                 found.append({"type": "META REFRESH", "text": "", "url": u})
 
@@ -401,25 +381,13 @@ def find_hidden_links(soup, raw_html):
         if f["url"] not in seen:
             seen.add(f["url"])
             unique.append(f)
-
     return unique
 
 def find_all_tiket_links(soup, raw_html):
-    """Gabungkan semua metode pencarian link tiket.com."""
     all_links = []
-
-    # Visible links
-    visible = extract_visible_links(soup)
-    all_links.extend(visible)
-
-    # Buttons/CTA
-    buttons = extract_buttons(soup)
-    all_links.extend(buttons)
-
-    # Hidden links
-    hidden = find_hidden_links(soup, raw_html)
-    all_links.extend(hidden)
-
+    all_links.extend(extract_visible_links(soup))
+    all_links.extend(extract_buttons(soup))
+    all_links.extend(find_hidden_links(soup, raw_html))
     return all_links
 
 # ============================================================
@@ -435,83 +403,58 @@ def ln(text=""):
 def print_display(page_info, all_links, hidden_links, cycle, interval, elapsed_ms, status_code):
     current = now_wib()
     clear_screen()
-
     print()
     ln(f"{C.CYAN}{C.BOLD}+======================================================+{C.RESET}")
     ln(f"{C.CYAN}{C.BOLD}|   THE WEEKND - BCA PROMO TIKET.COM LINK MONITOR      |{C.RESET}")
     ln(f"{C.CYAN}{C.BOLD}|   Target: promo.bca.co.id/id/the-weeknd              |{C.RESET}")
     ln(f"{C.CYAN}{C.BOLD}+======================================================+{C.RESET}")
     print()
-
-    # Info
     ln(f"{C.WHITE}  Waktu    : {C.BOLD}{current.strftime('%d %b %Y  %H:%M:%S WIB')}{C.RESET}")
     ln(f"{C.DIM}  Scan #   : {cycle}    Interval: {interval}s    Response: {elapsed_ms}ms    HTTP: {status_code}{C.RESET}")
+    tg_status = f"{C.GREEN}ON" if TELEGRAM_BOT_TOKEN else f"{C.RED}OFF"
+    ln(f"{C.DIM}  Telegram : {tg_status}{C.RESET}")
     print()
-
-    # Page Info
     if page_info["title"]:
         ln(f"{C.WHITE}{C.BOLD}  {page_info['title'][:60]}{C.RESET}")
-    if page_info["description"]:
-        ln(f"{C.DIM}  {page_info['description'][:70]}{C.RESET}")
-    if page_info["promo_period"]:
-        ln(f"{C.YELLOW}  {page_info['promo_period']}{C.RESET}")
     print()
 
-    # ── Visible tiket.com Links ──
-    visible = [l for l in all_links if "VISIBLE" in l["type"] or "PRESALE" in l["type"]]
     priority = [l for l in all_links if l.get("priority") or "PRESALE" in l["type"]]
-    ln(f"{C.WHITE}{C.BOLD}  VISIBLE TIKET.COM LINKS ({len(visible)}){C.RESET}")
+    visible = [l for l in all_links if "VISIBLE" in l["type"]]
+
+    ln(f"{C.WHITE}{C.BOLD}  TIKET.COM LINKS ({len(all_links)}){C.RESET}")
     ln(f"{C.DIM}  {'─' * 52}{C.RESET}")
 
-    # Show priority links first
     if priority:
         for link in priority:
-            ln(f"{C.BG_GRN}{C.BOLD}{C.WHITE}    >>> PRESALE LINK! {link['text'][:30]}{C.RESET}")
+            ln(f"{C.BG_GRN}{C.BOLD}{C.WHITE}    >>> PRESALE! {link['text'][:30]}{C.RESET}")
             ln(f"{C.GREEN}{C.BOLD}       {link['url'][:80]}{C.RESET}")
             print()
 
-    # Then other visible links
-    other_visible = [l for l in visible if not l.get("priority") and "PRESALE" not in l["type"]]
-    if other_visible:
-        for link in other_visible:
-            relevance = f"{C.GREEN}[RELEVANT]" if link.get("relevant") else f"{C.DIM}[generic]"
+    other = [l for l in visible if not l.get("priority")]
+    if other:
+        for link in other:
             ln(f"{C.GREEN}    >> {link['text'][:40]}{C.RESET}")
             ln(f"{C.GREEN}       {link['url'][:70]}{C.RESET}")
-            ln(f"       {relevance}{C.RESET}")
             print()
     elif not priority:
-        ln(f"{C.DIM}    Belum ada visible link ke tiket.com...{C.RESET}")
+        ln(f"{C.DIM}    Belum ada link ke tiket.com...{C.RESET}")
         print()
 
-    # ── Buttons/CTA ──
-    buttons = [l for l in all_links if l["type"] == "BUTTON/CTA"]
-    if buttons:
-        ln(f"{C.YELLOW}{C.BOLD}  BUTTONS / CTA ({len(buttons)}){C.RESET}")
-        ln(f"{C.DIM}  {'─' * 52}{C.RESET}")
-        for link in buttons:
-            ln(f"{C.YELLOW}    >> [{link['text'][:30]}]{C.RESET}")
-            ln(f"{C.YELLOW}       {link['url'][:70]}{C.RESET}")
-            print()
-
-    # ── Hidden Links ──
     if hidden_links:
-        ln(f"{C.BG_GRN}{C.BOLD}{C.WHITE}  !!! HIDDEN TIKET.COM LINK DITEMUKAN !!!  {C.RESET}")
+        ln(f"{C.BG_GRN}{C.BOLD}{C.WHITE}  !!! HIDDEN LINK DITEMUKAN !!!  {C.RESET}")
         ln(f"{C.DIM}  {'─' * 52}{C.RESET}")
         for h in hidden_links:
             ln(f"{C.GREEN}{C.BOLD}    >> [{h['type']}] {h.get('text','')}{C.RESET}")
             ln(f"{C.GREEN}{C.BOLD}       {h['url']}{C.RESET}")
-            print()
+        print()
     else:
-        ln(f"{C.WHITE}{C.BOLD}  HIDDEN LINKS{C.RESET}")
-        ln(f"{C.DIM}  {'─' * 52}{C.RESET}")
-        ln(f"{C.DIM}    Belum ada hidden link terdeteksi...{C.RESET}")
+        ln(f"{C.DIM}  Hidden: 0  |  Menunggu link muncul...{C.RESET}")
         print()
 
-    # Summary
     total = len(all_links)
     relevant = len([l for l in all_links if l.get("relevant")])
-    ln(f"{C.DIM}  Total links: {total}  |  Relevant: {relevant}  |  Hidden: {len(hidden_links)}{C.RESET}")
-    ln(f"{C.DIM}  Log: {LOG_FILE}  |  Tekan Ctrl+C untuk stop{C.RESET}")
+    ln(f"{C.DIM}  Total: {total}  |  Relevant: {relevant}  |  Hidden: {len(hidden_links)}{C.RESET}")
+    ln(f"{C.DIM}  Log: {LOG_FILE}  |  Ctrl+C untuk stop{C.RESET}")
     print()
 
 # ============================================================
@@ -520,39 +463,32 @@ def print_display(page_info, all_links, hidden_links, cycle, interval, elapsed_m
 
 def notify_user(links, auto_open):
     print()
-    for _ in range(2):
-        ln(f"{C.BG_RED}{C.BOLD}{C.WHITE}{'':^54}{C.RESET}")
     ln(f"{C.BG_RED}{C.BOLD}{C.WHITE}{'!!! LINK TIKET.COM DITEMUKAN !!!':^54}{C.RESET}")
-    for _ in range(2):
-        ln(f"{C.BG_RED}{C.BOLD}{C.WHITE}{'':^54}{C.RESET}")
     print()
 
-    # Sort: presale links first
     presale = [l for l in links if l.get("priority") or "PRESALE" in l.get("type", "")]
     others = [l for l in links if l not in presale]
 
     if presale:
         ln(f"{C.BG_GRN}{C.BOLD}{C.WHITE}  === PRESALE WEEKND LINK === {C.RESET}")
         for link in presale:
-            t = link.get("text", "")
-            ln(f"{C.GREEN}{C.BOLD}  >> [{link['type']}] {t}{C.RESET}")
-            ln(f"{C.GREEN}{C.BOLD}     {link['url']}{C.RESET}")
+            ln(f"{C.GREEN}{C.BOLD}  >> {link['url']}{C.RESET}")
         print()
 
     for link in others:
-        t = link.get("text", "")
-        ln(f"{C.GREEN}{C.BOLD}  >> [{link['type']}] {t}{C.RESET}")
-        ln(f"{C.GREEN}{C.BOLD}     {link['url']}{C.RESET}")
+        ln(f"{C.GREEN}{C.BOLD}  >> [{link['type']}] {link['url']}{C.RESET}")
     print()
     print("\a" * 5)
 
     # Save to file
     with open(FOUND_LINKS_FILE, "w") as f:
         json.dump({"found_at": now_wib().isoformat(), "links": links}, f, indent=2)
-    log_to_file(f"LINK TIKET.COM DITEMUKAN: {json.dumps(links)}")
+    log_to_file(f"LINK DITEMUKAN: {json.dumps(links)}")
+
+    # TELEGRAM NOTIFICATION
+    send_telegram_alert(links)
 
     if auto_open:
-        # Open presale links first
         for link in (presale + others):
             url = link["url"]
             if url.startswith("http"):
@@ -580,9 +516,16 @@ def run_monitor(auto_open=True):
     ln(f"{C.DIM}  Target : {URL}{C.RESET}")
     ln(f"{C.DIM}  Mencari: Link ke tiket.com (presale / pembelian tiket){C.RESET}")
     ln(f"{C.DIM}  Log    : {LOG_FILE}{C.RESET}")
+
+    if TELEGRAM_BOT_TOKEN:
+        ln(f"{C.GREEN}  Telegram: AKTIF{C.RESET}")
+        send_telegram_startup()
+    else:
+        ln(f"{C.YELLOW}  Telegram: TIDAK AKTIF (set TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID){C.RESET}")
+
     print()
     time.sleep(1)
-    log_to_file(f"Bot dimulai - monitoring {URL} untuk link tiket.com")
+    log_to_file(f"Bot dimulai - monitoring {URL}")
 
     try:
         while True:
@@ -596,17 +539,13 @@ def run_monitor(auto_open=True):
                 page_info = extract_page_info(soup)
                 all_links = find_all_tiket_links(soup, raw_html)
                 hidden_links = find_hidden_links(soup, raw_html)
-
-                # Get HTTP status (already raised for errors, so it's 200)
                 status_code = 200
 
                 print_display(page_info, all_links, hidden_links, cycle, interval, elapsed_ms, status_code)
 
-                # Log summary
                 visible_count = len([l for l in all_links if l["type"] == "VISIBLE LINK"])
                 log_to_file(f"#{cycle} | Visible: {visible_count} | Hidden: {len(hidden_links)} | Total: {len(all_links)}")
 
-                # Check for new relevant links
                 new_relevant = []
                 for link in all_links:
                     if link.get("relevant") and link["url"] not in previously_found:
@@ -640,16 +579,24 @@ def run_monitor(auto_open=True):
         print(f"  {C.DIM}Total scan  : {cycle}{C.RESET}")
         print(f"  {C.DIM}Log tersimpan: {LOG_FILE}{C.RESET}\n")
         log_to_file(f"Bot dihentikan setelah {cycle} scan")
+        send_telegram(f"⛔ Bot dihentikan setelah {cycle} scan.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Bot monitor link tiket.com di halaman BCA promo The Weeknd Jakarta 2026")
+    parser = argparse.ArgumentParser(description="Bot monitor link tiket.com - The Weeknd Jakarta 2026")
     parser.add_argument("--interval", "-i", type=float, default=None, help="Override interval polling (detik)")
-    parser.add_argument("--no-auto-open", action="store_true", help="Jangan auto-buka browser saat link ditemukan")
+    parser.add_argument("--no-auto-open", action="store_true", help="Jangan auto-buka browser")
+    parser.add_argument("--telegram-token", type=str, default=None, help="Telegram bot token")
+    parser.add_argument("--telegram-chat", type=str, default=None, help="Telegram chat ID")
     args = parser.parse_args()
 
+    global DEFAULT_INTERVAL, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
     if args.interval:
-        global DEFAULT_INTERVAL
         DEFAULT_INTERVAL = args.interval
+    if args.telegram_token:
+        TELEGRAM_BOT_TOKEN = args.telegram_token
+    if args.telegram_chat:
+        TELEGRAM_CHAT_ID = args.telegram_chat
 
     run_monitor(auto_open=not args.no_auto_open)
 
