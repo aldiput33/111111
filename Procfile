@@ -1,1 +1,1 @@
-worker: python weeknd_bca_bot.py --no-auto-open
+worker: python -u weeknd_bca_bot.py

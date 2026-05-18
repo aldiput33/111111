@@ -6,6 +6,4 @@ services:
     startCommand: python weeknd_bca_bot.py --no-auto-open
     envVars:
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
-        sync: false
+        value: "8757063005:AAHYTOK5SCUC3LSTWwpNhsID97wdEyGh-_I"
