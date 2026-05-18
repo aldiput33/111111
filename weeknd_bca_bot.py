@@ -508,6 +508,7 @@ def main():
     parser = argparse.ArgumentParser(description="Bot monitor tiket.com - The Weeknd Jakarta 2026")
     parser.add_argument("--interval", "-i", type=float, default=None)
     parser.add_argument("--telegram-token", type=str, default=None)
+    parser.add_argument("--no-auto-open", action="store_true", help="(legacy, ignored)")
     args = parser.parse_args()
 
     global DEFAULT_INTERVAL, TELEGRAM_BOT_TOKEN
