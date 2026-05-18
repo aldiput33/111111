@@ -1,0 +1,9 @@
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "python weeknd_bca_bot.py --no-auto-open",
+    "restartPolicyType": "ALWAYS"
+  }
+}

@@ -1,0 +1,11 @@
+services:
+  - type: worker
+    name: weeknd-bca-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python weeknd_bca_bot.py --no-auto-open
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
